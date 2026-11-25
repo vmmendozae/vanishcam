@@ -1,0 +1,15 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.log
+vanish_webcam/build/
+vanish_webcam/dist/
+vanish_webcam/license_config.json
+
+# Swift
+vanishcam-notch/.build/
+vanishcam-notch/dist/
+
+# macOS
+.DS_Store

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>VanishCam prueba</title>
+<style>
+  body { margin: 0; background: #202124; color: #e8eaed; font: 14px system-ui; }
+  main { display: grid; place-items: center; min-height: 100vh; gap: 8px; }
+  video { width: 640px; height: 360px; background: #000; border-radius: 12px; }
+  #log { font: 12px ui-monospace, monospace; white-space: pre; max-width: 640px; overflow: auto; }
+</style>
+<script>
+  // Stand-ins for the extension APIs and for a camera.
+  const memory = {};
+  window.chrome = {
+    runtime: {
+      getURL: (p) => new URL("../" + p, location.href).href,
+      onMessage: { addListener() {} },
+    },
+    storage: { local: {
+      get: async (keys) => Object.fromEntries(keys.filter((k) => k in memory).map((k) => [k, memory[k]])),
+      set: async (obj) => Object.assign(memory, obj),
+    } },
+  };
+
+  // Synthetic camera: a room; a "person" leaves during capture and comes back.
+  const scene = document.createElement("canvas");
+  scene.width = 1280; scene.height = 720;
+  const sctx = scene.getContext("2d");
+  window.personVisible = true;
+  function drawScene(t) {
+    sctx.fillStyle = "#b9ab94"; sctx.fillRect(0, 0, 1280, 720);
+    sctx.fillStyle = "#8c6e5a"; sctx.fillRect(0, 430, 1280, 290);
+    sctx.fillStyle = "#3d5a3c"; sctx.fillRect(840, 110, 260, 230);
+    sctx.fillStyle = "#c9b27a"; sctx.fillRect(160, 160, 160, 200);
+    if (window.personVisible) {
+      const x = 560 + Math.sin(t / 700) * 8;
+      sctx.fillStyle = "#2f3e8f"; sctx.beginPath(); sctx.ellipse(x, 640, 230, 210, 0, Math.PI, 0); sctx.fill();
+      sctx.fillStyle = "#e0ac8a"; sctx.beginPath(); sctx.ellipse(x, 330, 105, 130, 0, 0, 2 * Math.PI); sctx.fill();
+      sctx.fillStyle = "#3b2a22"; sctx.beginPath(); sctx.ellipse(x, 245, 110, 60, 0, Math.PI, 0); sctx.fill();
+    }
+  }
+  // Worker ticks are not throttled like requestAnimationFrame in a hidden pane.
+  const ticker = new Worker(URL.createObjectURL(new Blob(
+    ["setInterval(() => postMessage(0), 33)"], { type: "text/javascript" })));
+  ticker.onmessage = () => drawScene(performance.now());
+  drawScene(0);
+  const fakeStream = scene.captureStream(30);
+  MediaDevices.prototype.getUserMedia = async function () {
+    return new MediaStream([fakeStream.getVideoTracks()[0].clone()]);
+  };
+</script>
+<script src="../src/page.js"></script>
+<script src="../lib/vision_wasm_internal.js"></script>
+<script src="../src/gestures.js"></script>
+<script src="../src/effects.js"></script>
+<script src="../src/panel.js"></script>
+<script src="../src/content.js"></script>
+</head>
+<body>
+<main>
+  <div>Vista de la "llamada" (lo que recibe Meet)</div>
+  <video id="call" autoplay muted playsinline></video>
+  <div id="log"></div>
+</main>
+<script>
+  const log = (m) => { document.getElementById("log").textContent += m + "\n"; };
+  window.addEventListener("error", (e) => log("ERROR " + e.message));
+  window.addEventListener("unhandledrejection", (e) => log("ERROR " + (e.reason && e.reason.message || e.reason)));
+  // Mask stand-in for the synthetic figure (MediaPipe will not see a cartoon as a person).
+  window.fakeMask = () => {
+    const w = 256, h = 144, data = new Float32Array(w * h);
+    const cx = (560 / 1280) * w;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const head = ((x - cx) / (105 / 5)) ** 2 + ((y - 330 / 5) / (130 / 5)) ** 2 <= 1;
+      const body = y >= 430 / 5 && ((x - cx) / (230 / 5)) ** 2 + ((y - 640 / 5) / (210 / 5)) ** 2 <= 1;
+      data[y * w + x] = head || body ? 0.95 : 0.0;
+    }
+    return { data, width: w, height: h };
+  };
+  navigator.mediaDevices.getUserMedia({ video: true, audio: false }).then((stream) => {
+    document.getElementById("call").srcObject = stream;
+    log("camara interceptada: " + (stream.getVideoTracks()[0] instanceof MediaStreamTrackGenerator));
+  }).catch((e) => log("ERROR getUserMedia " + e));
+</script>
+</body>
+</html>
